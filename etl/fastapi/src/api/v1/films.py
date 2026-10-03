@@ -1,12 +1,13 @@
 from http import HTTPStatus
 
-from api.const import MAX_OFFSET, SORT_ORDERS, SORTABLE_FIELDS
+from api.const import SORT_ORDERS, SORTABLE_FIELDS
 from api.filters import FilmFilter
 from api.utils import get_include_fields
 from elasticsearch import NotFoundError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 from services.film import FilmService, get_film_service
+from services.custom_exceptions import FilmNotFoundError
 
 router = APIRouter()
 
@@ -18,7 +19,7 @@ async def film_details(
 ) -> JSONResponse:
     try:
         film = await film_service.get_by_id(film_id)
-    except NotFoundError:
+    except FilmNotFoundError:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=f'Film {film_id} not found',
@@ -59,23 +60,12 @@ async def all_films(
             detail=str(e),
         )
 
-    offset = (page - 1) * page_size
-    if offset + page_size > MAX_OFFSET:
-        raise HTTPException(
-            status_code=400,
-            detail='Слишком глубокая страница. '
-                   'Используйте фильтры для уточнения запроса.'
-        )
-    sort_by = [
-        {sort: {'order': order}},
-        {'_doc': {'order': 'asc'}},
-        ]
     films = await film_service.get_all(
-        offset=offset,
+        page=page,
         page_size=page_size,
-        sort_by=sort_by,
+        sort_field=sort,
+        sort_order=order,
         filters=filters,
-        include_fields=include_fields,
         )
     result = [film.model_dump(include=include_fields) for film in films]
 

@@ -91,6 +91,7 @@ services:
    
   fastapi:
     build: ./fastapi
+    image: fastapi-image
     env_file:
       - ./.env
     volumes:
@@ -122,7 +123,7 @@ services:
       timeout: 5s
       retries: 5
     restart: always
-
+    
 volumes:
   postgres_data:
   static_data:

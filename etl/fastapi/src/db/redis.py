@@ -16,6 +16,7 @@ def init_redis() -> None:
         password=config.REDIS_PASSW,
         socket_connect_timeout=config.REDIS_CONNECT_TIMEOUT,
         socket_timeout=config.REDIS_SOCKET_TIMEOUT,
+        decode_responses=True,
     )
 
 
