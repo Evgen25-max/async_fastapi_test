@@ -53,6 +53,8 @@ services:
       - ES_JAVA_OPTS=-Xms2g -Xmx2g
     volumes:
       - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
     networks:
       - elastic
     healthcheck:

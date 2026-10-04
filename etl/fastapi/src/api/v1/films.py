@@ -17,14 +17,7 @@ async def film_details(
     film_id: str,
     film_service: FilmService = Depends(get_film_service)
 ) -> JSONResponse:
-    try:
-        film = await film_service.get_by_id(film_id)
-    except FilmNotFoundError:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f'Film {film_id} not found',
-        )
-
+    film = await film_service.get_by_id(film_id)
     return JSONResponse(content=film.model_dump())
 
 

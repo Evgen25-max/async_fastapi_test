@@ -79,7 +79,7 @@ services:
       redis:
         condition: service_healthy
       fastapi:
-        condition: service_started
+        condition: service_healthy
     networks:
       - test_net
     entrypoint: >
@@ -88,8 +88,6 @@ services:
         python3 utils/wait_for_es.py &&
         echo 'Waiting for Redis...' &&
         python3 utils/wait_for_redis.py &&
-        echo 'Waiting for FastAPI...' &&
-        sleep 3 &&
         echo 'Running pytest...' &&
         pytest src -v
       "

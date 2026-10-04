@@ -6,7 +6,7 @@ from elasticsearch import ConnectionTimeout
 from elasticsearch.exceptions import ConnectionError as ESConnectionError
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from services.custom_exceptions import FilmNotFoundError
+from services.custom_exceptions import FilmNotFoundError, FilmDataError, IndexNotFoundError
 from api.v1 import films
 from cache.redis_film import RedisFilmCache
 from core.logger import LOGGING
@@ -21,41 +21,49 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Запуск приложения %s...", config.PROJECT_NAME_FASTAPI)
+    logger.info('Запуск приложения %s...', config.PROJECT_NAME_FASTAPI)
 
     redis.init_redis()
     elastic.init_elastic()
 
     try:
         await redis.get_redis().ping()
-        logger.info("Redis доступен")
+        logger.info('Redis доступен')
     except Exception as e:
-        logger.warning("Redis недоступен при старте: %s", e)
+        logger.warning('Redis недоступен при старте: %s', e)
 
     try:
         await elastic.get_elastic().info()
-        logger.info("Elasticsearch доступен")
+        logger.info('Elasticsearch доступен')
     except Exception as e:
-        logger.warning("Elasticsearch недоступен при старте: %s", e)
+        logger.warning('Elasticsearch недоступен при старте: %s', e)
 
     app.state.film_service = FilmService(
         cache=RedisFilmCache(redis.get_redis()),
         repository=ElasticFilmRepository(elastic.get_elastic()),
     )
 
-    logger.info("Приложение запущено")
-    yield
+    logger.info('Приложение запущено')
+    try:
+        yield
+    finally:
+        logger.info('Остановка приложения')
+        try:
+            await redis.close_redis()
+        except Exception as e:
+            logger.error('Ошибка при закрытии Redis: %s', e)
+        try:
+            await elastic.close_elastic()
+        except Exception as e:
+            logger.error('Ошибка при закрытии Elasticsearch: %s', e)
 
-    logger.info("Остановка приложения")
-    await redis.close_redis()
-    await elastic.close_elastic()
-    logger.info("Подключения закрыты")
+        logger.info('Попытка закрытия подключений завершена')
 
 
 app = FastAPI(
     title=config.PROJECT_NAME_FASTAPI,
-    docs_url="/api/openapi",
-    openapi_url="/api/openapi.json",
+    docs_url='/api/openapi',
+    openapi_url='/api/openapi.json',
     lifespan=lifespan,
 )
 
@@ -67,7 +75,17 @@ async def film_not_found_handler(request: Request, exc: FilmNotFoundError):
     """Обработчик: фильм не найден → 404."""
     return JSONResponse(
         status_code=404,
-        content={"detail": f"Film {exc.film_id} not found"},
+        content={'detail': f'Фильм {exc.film_id} не найден'},
+    )
+
+
+@app.exception_handler(FilmDataError)
+async def film_data_corrupted_handler(request: Request, exc: FilmDataError):
+    '''Обработчик: данные фильма повреждены → 500.'''
+    logger.exception('Повреждённые данные фильма %s: %s', exc.film_id, exc)
+    return JSONResponse(
+        status_code=500,
+        content={'detail': f'Данные фильма повреждены {exc.film_id}'},
     )
 
 
@@ -75,7 +93,7 @@ async def film_not_found_handler(request: Request, exc: FilmNotFoundError):
 async def es_connection_error_handler(
     request: Request, exc: ESConnectionError
       ):
-    logger.error('Elasticsearch недоступен: %s', exc)
+    logger.exception('Elasticsearch недоступен: %s', exc)
     return JSONResponse(
         status_code=503,
         content={
@@ -86,7 +104,7 @@ async def es_connection_error_handler(
 
 @app.exception_handler(ConnectionTimeout)
 async def es_timeout_error_handler(request: Request, exc: ConnectionTimeout):
-    logger.error('Превышено время ожидания ответа от Elasticsearch: %s', exc)
+    logger.exception('Превышено время ожидания ответа от Elasticsearch: %s', exc)
     return JSONResponse(
         status_code=503,
         content={
@@ -95,4 +113,12 @@ async def es_timeout_error_handler(request: Request, exc: ConnectionTimeout):
     )
 
 
-app.include_router(films.router, prefix="/api/v1/films", tags=["films"])
+@app.exception_handler(IndexNotFoundError)
+async def index_not_found_handler(request: Request, exc: IndexNotFoundError):
+    logger.exception('Хранилище недоступно: индекс %s не найден', exc.index_name)
+    return JSONResponse(
+        status_code=503,
+        content={'detail': 'Сервис временно недоступен. Попробуйте позднее.'},
+    )
+
+app.include_router(films.router, prefix='/api/v1/films', tags=['films'])
