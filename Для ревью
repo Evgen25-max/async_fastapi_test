@@ -1,0 +1,2 @@
+cd etl/tests/functional
+sudo docker compose --env-file ../../.env up --build --abort-on-container-exit tests
