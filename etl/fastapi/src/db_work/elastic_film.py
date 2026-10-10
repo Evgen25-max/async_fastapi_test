@@ -8,7 +8,7 @@ from api.filters import FilmFilter
 from models.film import Film
 from db_work.abc_film import FilmRepository
 from services.exception_handler import handle_elastic_errors
-from services.custom_exceptions import FilmNotFoundError
+from services.custom_exceptions import FilmNotFoundError, FilmDataError, IndexNotFoundError
 from elasticsearch import NotFoundError as ESNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -22,18 +22,30 @@ class ElasticFilmRepository(FilmRepository):
     def __init__(self, elastic: AsyncElasticsearch):
         self._elastic = elastic
 
+    def _handle_not_found(
+        self, exc: ESNotFoundError, film_id: str | None = None
+    ) -> None:
+        """Различает отсутствие индекса и отсутствие документа."""
+        error_type = (exc.body or {}).get('error', {}).get('type', '')
+
+        if error_type == 'index_not_found_exception':
+            logger.error('Индекс %s не найден в Elasticsearch', MOVIES_INDEX)
+            raise IndexNotFoundError(MOVIES_INDEX) from exc
+        if film_id is not None:
+            raise FilmNotFoundError(film_id) from exc
+        raise exc
+
     @handle_elastic_errors
     async def get_by_id(self, film_id: str) -> Optional[Film]:
         try:
             doc = await self._elastic.get(index=MOVIES_INDEX, id=film_id)
-        except ESNotFoundError:
-            raise FilmNotFoundError(film_id)
-        doc = await self._elastic.get(index=MOVIES_INDEX, id=film_id)
+        except ESNotFoundError as e:
+            self._handle_not_found(e, film_id)
         try:
             return Film(**doc['_source'])
         except (ValidationError, KeyError):
             logger.exception('Битые данные в ES для фильма %s', film_id)
-            return None
+            raise FilmDataError(film_id)
 
     @handle_elastic_errors
     async def get_all(
@@ -56,8 +68,25 @@ class ElasticFilmRepository(FilmRepository):
             "from_": offset,
             "size": page_size,
         }
-        docs = await self._elastic.search(**search_params)
-        return [Film(**doc['_source']) for doc in docs['hits']['hits']]
+        try:
+            docs = await self._elastic.search(**search_params)
+        except ESNotFoundError as e:
+            self._handle_not_found(e)
+
+        films = []
+        for doc in docs['hits']['hits']:
+            try:
+                film = Film(**doc['_source'])
+                films.append(film)
+            except (ValidationError, KeyError):
+                film_id = doc.get('_id', 'unknown')
+                logger.warning(
+                    'Битые данные в ES для фильма %s, пропускаем',
+                    film_id,
+                    exc_info=True
+                )
+                continue
+        return films
 
     def _build_query(self, filters: FilmFilter) -> dict:
         """Построение ES-запроса."""

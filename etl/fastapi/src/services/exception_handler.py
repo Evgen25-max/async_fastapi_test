@@ -3,9 +3,9 @@ from functools import wraps
 
 from elasticsearch.exceptions import ConnectionError as ESConnectionError, NotFoundError as ESNotFoundError, ConnectionTimeout
 from redis.exceptions import RedisError
-from services.custom_exceptions import FilmNotFoundError
+from services.custom_exceptions import FilmNotFoundError, FilmDataError, IndexNotFoundError
 
-CUSTOM_EXCEPTIONS = (FilmNotFoundError,)
+CUSTOM_EXCEPTIONS = (FilmNotFoundError, FilmDataError, IndexNotFoundError)
 
 logger = logging.getLogger(__name__)
 

@@ -69,7 +69,7 @@ class FilmService:
 
         film = await self._repository.get_by_id(film_id)
         if film is None:
-            raise FilmNotFoundError
+            raise FilmNotFoundError(film_id)
 
         await self._cache.put_film(film)
         return film

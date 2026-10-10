@@ -87,13 +87,21 @@ async def test_film_details_redis_cache(aiohttp_client, clean_es, clean_redis, l
 async def test_all_films_pagination(aiohttp_client, clean_es, clean_redis, load_films):
     films = generate_films(15, 'Pagination Movie')
     await load_films(films)
-
-    url = f'{BASE_URL}/api/v1/films/'
-    async with aiohttp_client.get(url) as response:
+    page_1 = f'{BASE_URL}/api/v1/films/?page=1&page_size=10'
+    async with aiohttp_client.get(page_1) as response:
         assert response.status == 200
-        data = await response.json()
-        items = get_items(data)
-        assert len(items) > 0
+        data1 = await response.json()
+        items_page_1 = get_items(data1)
+        assert len(items_page_1) == 10
+        ids_page_1 = {item['id'] for item in items_page_1}
+    page_2 = f'{BASE_URL}/api/v1/films/?page=2&page_size=10'
+    async with aiohttp_client.get(page_2) as response:
+        assert response.status == 200
+        data2 = await response.json()
+        items_page_2 = get_items(data2)
+        assert len(items_page_2) == 5
+        ids_page_2 = {item['id'] for item in items_page_2}
+    assert ids_page_1.isdisjoint(ids_page_2)
 
 
 @pytest.mark.asyncio
@@ -112,18 +120,21 @@ async def test_all_films_limit_n_records(aiohttp_client, clean_es, clean_redis, 
 @pytest.mark.asyncio
 async def test_all_films_search_by_phrase(aiohttp_client, clean_es, clean_redis, load_films):
     """Поиск записей по фразе (параметр title)."""
-    films = generate_films(2, 'KuKu Movie')
-    films.extend(generate_films(2, 'LuLu Movie'))
-
-    await load_films(films)
+    films_kuku = generate_films(2, 'KuKu Movie')
+    films_lulu = generate_films(2, 'LuLu Movie')
+    await load_films(films_kuku + films_lulu)
 
     url = f'{BASE_URL}/api/v1/films/?title=KuKu'
     async with aiohttp_client.get(url) as response:
         assert response.status == 200
         data = await response.json()
         items = get_items(data)
-        assert len(items) >= 1
-        assert any('KuKu' in item['title'] for item in items)
+        assert len(items) == 2
+        for item in items:
+            assert 'KuKu' in item['title']
+        need_ids = {f['id'] for f in films_kuku}
+        actual_ids = {item['id'] for item in items}
+        assert need_ids == actual_ids
 
 
 @pytest.mark.asyncio
@@ -174,4 +185,4 @@ async def test_all_films_invalid_sort(aiohttp_client, clean_es, clean_redis):
     """Cортировка по несуществующему полю."""
     url = f'{BASE_URL}/api/v1/films/?sort=invalid_field'
     async with aiohttp_client.get(url) as response:
-        assert response.status in (422, 200)
+        assert response.status == 422
